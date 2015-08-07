@@ -22,8 +22,10 @@ var Server = (function () {
             // Enable GZIPPING
             app.use(compression());
             // User defined static folders
-            for (var i = 0, l = server.staticFilesFolder.length; i < l; i++)
+            for (var i = 0, l = server.staticFilesFolder.length; i < l; i++) {
+                winston.info("Adding static resource folder '" + server.staticFilesFolder[i] + "'", { process: process.pid });
                 app.use(express.static(server.staticFilesFolder[i], { maxAge: server.cacheLifetime }));
+            }
             // Setup the jade template engine
             app.set('view engine', 'jade');
             // Set any jade paths
@@ -32,8 +34,10 @@ var Server = (function () {
                 if (server.paths[i].templatePath != "") {
                     if (!fs.existsSync(server.paths[i].templatePath))
                         winston.info("The template path '" + server.paths[i].templatePath + "' does not exist", { process: process.pid });
-                    else
+                    else {
+                        winston.info("Adding jade template folder '" + server.paths[i].templatePath + "'", { process: process.pid });
                         allViewPaths.push(server.paths[i].templatePath);
+                    }
                 }
             }
             app.set('views', allViewPaths);
