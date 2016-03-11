@@ -1,6 +1,3 @@
-/// <reference path="../required/angular.d.ts" />
-/// <reference path="../required/angular-ui-router.d.ts" />
-
 declare module ModepressAdmin
 {
     /*
