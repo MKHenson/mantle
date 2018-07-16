@@ -2,14 +2,14 @@
 
 import { IUploadToken } from '../types/tokens/i-upload-token';
 import { IAuthReq } from '../types/tokens/i-auth-request';
-import { BucketTokens, IUploadResponse } from '../types/tokens/standard-tokens';
+import { VolumeTokens, IUploadResponse } from '../types/tokens/standard-tokens';
 import { IFileEntry } from '../types/models/i-file-entry';
 import express = require( 'express' );
 import bodyParser = require( 'body-parser' );
 import * as mongodb from 'mongodb';
 import ControllerFactory from '../core/controller-factory';
 import { UsersController } from '../controllers/users';
-import { BucketsController } from '../controllers/buckets';
+import { VolumesController } from '../controllers/volumes';
 import { ownerRights, requireUser } from '../utils/permission-controllers';
 import { Serializer } from './serializer';
 import * as multiparty from 'multiparty';
@@ -21,23 +21,23 @@ import { okJson, errJson, j200 } from '../utils/response-decorators';
 import { IBaseControler } from '../types/misc/i-base-controller';
 import Factory from '../core/model-factory';
 import { FilesController } from '../controllers/files';
-import { IBucketEntry } from '../types/models/i-bucket-entry';
+import { IVolume } from '../types/models/i-volume-entry';
 
 /**
  * Main class to use for managing users
  */
-export class BucketSerializer extends Serializer {
+export class VolumeSerializer extends Serializer {
   private _allowedFileTypes: Array<string>;
   private _options: IBaseControler;
   private _userController: UsersController;
-  private _bucketController: BucketsController;
+  private _volumeController: VolumesController;
   private _files: FilesController;
 
   /**
 	 * Creates an instance of the user manager
 	 */
   constructor( options: IBaseControler ) {
-    super( [ Factory.get( 'buckets' ) ] );
+    super( [ Factory.get( 'volumes' ) ] );
     this._allowedFileTypes = [ 'image/bmp', 'image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/tiff', 'text/plain', 'text/json', 'application/octet-stream' ];
     this._options = options;
   }
@@ -48,7 +48,7 @@ export class BucketSerializer extends Serializer {
   async initialize( e: express.Express, db: mongodb.Db ) {
 
     this._userController = ControllerFactory.get( 'users' );
-    this._bucketController = ControllerFactory.get( 'buckets' );
+    this._volumeController = ControllerFactory.get( 'volumes' );
     this._files = ControllerFactory.get( 'files' );
 
     // Setup the rest calls
@@ -58,34 +58,34 @@ export class BucketSerializer extends Serializer {
     router.use( bodyParser.json() );
     router.use( bodyParser.json( { type: 'application/vnd.api+json' } ) );
 
-    router.get( '/user/:user', <any>[ ownerRights, this.getBuckets.bind( this ) ] );
-    router.delete( '/:id', <any>[ requireUser, this.removeBuckets.bind( this ) ] );
-    router.post( '/:bucket/upload/:parentFile?', <any>[ requireUser, this.uploadUserFiles.bind( this ) ] );
-    router.post( '/user/:user/:name', <any>[ ownerRights, this.createBucket.bind( this ) ] );
+    router.get( '/user/:user', <any>[ ownerRights, this.getVolumes.bind( this ) ] );
+    router.delete( '/:id', <any>[ requireUser, this.removeVolumes.bind( this ) ] );
+    router.post( '/:volume/upload/:parentFile?', <any>[ requireUser, this.uploadUserFiles.bind( this ) ] );
+    router.post( '/user/:user/:name', <any>[ ownerRights, this.createVolume.bind( this ) ] );
 
     // Register the path
-    e.use( ( this._options.rootPath || '' ) + `/buckets`, router );
+    e.use( ( this._options.rootPath || '' ) + `/volumes`, router );
 
     await super.initialize( e, db );
     return this;
   }
 
   /**
-   * Removes buckets specified in the URL
+   * Removes volumes specified in the URL
    */
   @j200( 204 )
-  private async removeBuckets( req: IAuthReq, res: express.Response ): Promise<BucketTokens.DeleteAll.Response> {
-    await this._bucketController.remove( { _id: req.params.id as string } );
+  private async removeVolumes( req: IAuthReq, res: express.Response ): Promise<VolumeTokens.DeleteAll.Response> {
+    await this._volumeController.remove( { _id: req.params.id as string } );
     return;
   }
 
   /**
-   * Fetches all bucket entries from the database
+   * Fetches all volume entries from the database
    */
   @j200()
-  private async getBuckets( req: IAuthReq, res: express.Response ) {
+  private async getVolumes( req: IAuthReq, res: express.Response ) {
     const user = req.params.user;
-    const manager = this._bucketController;
+    const manager = this._volumeController;
     let searchTerm: RegExp | undefined;
 
     // Check for keywords
@@ -110,20 +110,20 @@ export class BucketSerializer extends Serializer {
   }
 
   /**
-   * Creates a new user bucket based on the target provided
+   * Creates a new user volume based on the target provided
    */
   @j200()
-  private async createBucket( req: IAuthReq, res: express.Response ) {
-    const manager = this._bucketController;
+  private async createVolume( req: IAuthReq, res: express.Response ) {
+    const manager = this._volumeController;
     const username: string = req.params.user;
-    const bucketName: string = req.params.name;
+    const name: string = req.params.name;
 
     try {
       if ( !username || username.trim() === '' )
         throw new Error( 'Please specify a valid username' );
-      if ( !bucketName || bucketName.trim() === '' )
+      if ( !name || name.trim() === '' )
         throw new Error( 'Please specify a valid name' );
-      if ( !this.alphaNumericDashSpace( bucketName ) )
+      if ( !this.alphaNumericDashSpace( name ) )
         throw new Error( 'Please only use safe characters' );
 
       const user = await this._userController.getUser( username );
@@ -134,7 +134,7 @@ export class BucketSerializer extends Serializer {
       if ( !inLimits )
         throw new Error( `You have run out of API calls, please contact one of our sales team or upgrade your account.` );
 
-      const entry = await manager.create( bucketName, username ) as IBucketEntry<'client'>;
+      const entry = await manager.create( name, username ) as IVolume<'client'>;
       return entry;
 
     } catch ( err ) {
@@ -212,7 +212,7 @@ export class BucketSerializer extends Serializer {
   }
 
   /**
-   * Attempts to upload a file to the user's bucket
+   * Attempts to upload a file to the user's volume
    */
   private uploadUserFiles( req: IAuthReq, res: express.Response ) {
     const form = new multiparty.Form( { maxFields: 8, maxFieldsSize: 5 * 1024 * 1024, maxFilesSize: 10 * 1024 * 1024 } );
@@ -220,18 +220,18 @@ export class BucketSerializer extends Serializer {
     let completedParts = 0;
     let closed = false;
     const uploadedTokens: Array<IUploadToken> = [];
-    const manager = this._bucketController;
+    const manager = this._volumeController;
     const username = req._user!.username! as string;
     const parentFile = req.params.parentFile;
     const filesUploaded: Array<Partial<IFileEntry<'server' | 'client'>>> = [];
-    const bucketName = req.params.bucket;
+    const name = req.params.volume;
 
-    if ( !bucketName || bucketName.trim() === '' )
-      return okJson<IUploadResponse>( { message: `Please specify a bucket`, tokens: [] }, res );
+    if ( !name || name.trim() === '' )
+      return okJson<IUploadResponse>( { message: `Please specify a volume`, tokens: [] }, res );
 
-    manager.get( { name: bucketName, user: username } ).then( ( bucketEntry ) => {
-      if ( !bucketEntry )
-        return okJson<IUploadResponse>( { message: `No bucket exists with the name '${bucketName}'`, tokens: [] }, res );
+    manager.get( { name: name, user: username } ).then( ( volume ) => {
+      if ( !volume )
+        return okJson<IUploadResponse>( { message: `No volume exists with the name '${name}'`, tokens: [] }, res );
 
       let metaJson: any | Error;
 
@@ -283,7 +283,7 @@ export class BucketSerializer extends Serializer {
             uploadToken.extension = part.headers[ 'content-type' ].toLowerCase();
 
             // Upload the file part to the cloud
-            manager.uploadStream( part, bucketEntry, username, true, parentFile ).then( function( file ) {
+            manager.uploadStream( part, volume, username, true, parentFile ).then( function( file ) {
               fileUploaded( file, uploadToken );
 
             } ).catch( function( err: Error ) {
@@ -319,7 +319,7 @@ export class BucketSerializer extends Serializer {
           numParts++;
 
           // Upload the file part to the cloud
-          manager.uploadStream( part, bucketEntry, username, true, parentFile ).then( function( file ) {
+          manager.uploadStream( part, volume, username, true, parentFile ).then( function( file ) {
             fileUploaded( file, uploadToken );
 
           } ).catch( function( err: Error ) {
@@ -340,7 +340,7 @@ export class BucketSerializer extends Serializer {
       const checkIfComplete = () => {
         if ( closed && completedParts === numParts ) {
           this.finalizeUploads( metaJson, filesUploaded, username, uploadedTokens ).then( function( token ) {
-            return okJson<BucketTokens.PostFile.Response>( token, res );
+            return okJson<VolumeTokens.PostFile.Response>( token, res );
           } );
         }
       }
@@ -349,7 +349,7 @@ export class BucketSerializer extends Serializer {
       form.parse( req );
 
     } ).catch( function( err ) {
-      return okJson<IUploadResponse>( { message: 'Could not get bucket: ' + err.toString(), tokens: [] }, res );
+      return okJson<IUploadResponse>( { message: 'Could not get volume: ' + err.toString(), tokens: [] }, res );
     } );
   }
 

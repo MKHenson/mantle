@@ -2,8 +2,8 @@
 import { IGoogleProperties } from '../types/config/properties/i-google';
 import { IRemote } from '../types/interfaces/i-remote';
 import { Page } from '../types/tokens/standard-tokens';
-import { ILocalBucket } from '../types/config/properties/i-remote-options';
-import { IBucketEntry } from '../types/models/i-bucket-entry';
+import { ILocalVolume } from '../types/config/properties/i-remote-options';
+import { IVolume } from '../types/models/i-volume-entry';
 import { IFileEntry } from '../types/models/i-file-entry';
 import { IStorageStats } from '../types/models/i-storage-stats';
 import { Collection, Db, ObjectID } from 'mongodb';
@@ -11,8 +11,8 @@ import { Part } from 'multiparty';
 import { CommsController } from '../socket-api/comms-controller';
 import { ClientInstructionType } from '../socket-api/socket-event-types';
 import { ClientInstruction } from '../socket-api/client-instruction';
-import { googleBucket } from '../core/remotes/google-bucket';
-import { localBucket } from '../core/remotes/local-bucket';
+import { googleVolume } from '../core/remotes/google-volume';
+import { localVolume } from '../core/remotes/local-volume';
 import { generateRandString, isValidObjectID } from '../utils/utils';
 import Controller from './controller';
 import { FilesController } from './files';
@@ -38,10 +38,10 @@ export type DeleteOptions = {
 };
 
 /**
- * Class responsible for managing buckets and uploads
+ * Class responsible for managing volumes and uploads
  */
-export class BucketsController extends Controller {
-  private _buckets: Collection<IBucketEntry<'server' | 'client'>>;
+export class VolumesController extends Controller {
+  private _volumes: Collection<IVolume<'server' | 'client'>>;
   private _files: Collection<IFileEntry<'server' | 'client'>>;
   private _stats: Collection<IStorageStats<'server' | 'client'>>;
   private _activeManager: IRemote;
@@ -57,25 +57,25 @@ export class BucketsController extends Controller {
    * @param db The mongo db
    */
   async initialize( db: Db ) {
-    this._buckets = await db.collection( this._config.collections.bucketsCollection );
+    this._volumes = await db.collection( this._config.collections.volumesCollection );
     this._files = await db.collection( this._config.collections.filesCollection );
     this._stats = await db.collection( this._config.collections.statsCollection );
 
-    googleBucket.initialize( this._config.remotes.google as IGoogleProperties );
-    localBucket.initialize( this._config.remotes.local as ILocalBucket );
-    this._activeManager = localBucket;
+    googleVolume.initialize( this._config.remotes.google as IGoogleProperties );
+    localVolume.initialize( this._config.remotes.local as ILocalVolume );
+    this._activeManager = localVolume;
     this._filesController = ControllerFactory.get( 'files' );
     this._statsController = ControllerFactory.get( 'stats' );
     return this;
   }
 
   /**
-   * Fetches all bucket entries from the database
-   * @param options Options for defining which buckets to return
+   * Fetches all volume entries from the database
+   * @param options Options for defining which volumes to return
    */
   async getMany( options: GetManyOptions = { index: 0, limit: 10 } ) {
-    const bucketCollection = this._buckets;
-    const search: Partial<IBucketEntry<'server'>> = {};
+    const columes = this._volumes;
+    const search: Partial<IVolume<'server'>> = {};
 
     if ( options.user )
       search.user = options.user;
@@ -84,8 +84,8 @@ export class BucketsController extends Controller {
       search.name = options.searchTerm as any;
 
     // Save the new entry into the database
-    const count = await bucketCollection.count( search );
-    let cursor = await bucketCollection.find( search );
+    const count = await columes.count( search );
+    let cursor = await columes.find( search );
 
     let limit = options.limit;
     let index = options.index;
@@ -96,8 +96,8 @@ export class BucketsController extends Controller {
     if ( limit !== undefined )
       cursor = cursor.limit( limit );
 
-    const result = await cursor.toArray() as IBucketEntry<'client'>[];
-    const toRet: Page<IBucketEntry<'client'>> = {
+    const result = await cursor.toArray() as IVolume<'client'>[];
+    const toRet: Page<IVolume<'client'>> = {
       limit: limit !== undefined ? limit : -1,
       count: count,
       index: index !== undefined ? index : -1,
@@ -107,11 +107,11 @@ export class BucketsController extends Controller {
   }
 
   /**
-   * Gets a bucket entry by its name or ID
+   * Gets a volume by its name or ID
    */
   async get( options: GetOptions = {} ) {
-    const bucketCollection = this._buckets;
-    const searchQuery: Partial<IBucketEntry<'server'>> = {};
+    const volumeCollection = this._volumes;
+    const searchQuery: Partial<IVolume<'server'>> = {};
 
     if ( options.user )
       searchQuery.user = options.user;
@@ -122,7 +122,7 @@ export class BucketsController extends Controller {
     if ( options.identifier )
       searchQuery.identifier = options.identifier;
 
-    const result = await bucketCollection.findOne( searchQuery );
+    const result = await volumeCollection.findOne( searchQuery );
 
     if ( !result )
       return null;
@@ -142,24 +142,24 @@ export class BucketsController extends Controller {
   }
 
   /**
-   * Attempts to create a new user bucket by first creating the storage on the cloud and then updating the internal DB
-   * @param name The name of the bucket
-   * @param user The user associated with this bucket
+   * Attempts to create a new user volume by first creating the storage on the cloud and then updating the internal DB
+   * @param name The name of the volume
+   * @param user The user associated with this volume
    */
   async create( name: string, user: string ) {
-    const identifier = `webinate-bucket-${generateRandString( 8 ).toLowerCase()}`;
-    const bucketCollection = this._buckets;
+    const identifier = `webinate-volume-${generateRandString( 8 ).toLowerCase()}`;
+    const volumeCollection = this._volumes;
     const stats = this._stats;
 
     // Get the entry
-    let bucketEntry: Partial<IBucketEntry<'server' | 'client'>> | null = await this.get( { name: name, user: user } );
+    let volume: Partial<IVolume<'server' | 'client'>> | null = await this.get( { name: name, user: user } );
 
-    // Make sure no bucket already exists with that name
-    if ( bucketEntry )
-      throw new Error( `A Bucket with the name '${name}' has already been registered` );
+    // Make sure no volume already exists with that name
+    if ( volume )
+      throw new Error( `A volume with the name '${name}' has already been registered` );
 
-    // Create the new bucket
-    bucketEntry = {
+    // Create the new volume
+    volume = {
       name: name,
       identifier: identifier,
       created: Date.now(),
@@ -168,30 +168,30 @@ export class BucketsController extends Controller {
     }
 
     // Save the new entry into the database
-    const insertResult = await bucketCollection.insertOne( bucketEntry );
-    bucketEntry = insertResult.ops[ 0 ];
+    const insertResult = await volumeCollection.insertOne( volume );
+    volume = insertResult.ops[ 0 ];
 
-    // Attempt to create a new Google bucket
-    await this._activeManager.createBucket( bucketEntry! );
+    // Attempt to create a new Google volume
+    await this._activeManager.createVolume( volume! );
 
     // Increments the API calls
     await stats.updateOne( { user: user } as IStorageStats<'server'>, { $inc: { apiCallsUsed: 1 } as IStorageStats<'server'> } );
 
-    // Send bucket added events to sockets
-    const token = { type: ClientInstructionType[ ClientInstructionType.BucketUploaded ], bucket: bucketEntry!, username: user };
+    // Send volume added events to sockets
+    const token = { type: ClientInstructionType[ ClientInstructionType.VolumeUploaded ], volume: volume!, username: user };
     await CommsController.singleton.processClientInstruction( new ClientInstruction( token, null, user ) );
-    return bucketEntry!;
+    return volume!;
   }
 
   /**
-   * Attempts to remove buckets of the given search result. This will also update the file and stats collection.
+   * Attempts to remove volumes of the given search result. This will also update the file and stats collection.
    * @param searchQuery A valid mongodb search query
-   * @returns An array of ID's of the buckets removed
+   * @returns An array of ID's of the volumes removed
    */
   async remove( options: DeleteOptions ) {
-    const bucketCollection = this._buckets;
+    const volumesCollection = this._volumes;
     const toRemove: string[] = [];
-    const searchQuery: Partial<IBucketEntry<'server'>> = {};
+    const searchQuery: Partial<IVolume<'server'>> = {};
 
     if ( options._id ) {
       if ( typeof options._id === 'string' ) {
@@ -207,46 +207,46 @@ export class BucketsController extends Controller {
     if ( options.user )
       searchQuery.user = options.user;
 
-    // Get all the buckets
-    const buckets = await bucketCollection.find( searchQuery ).toArray();
+    // Get all the volumes
+    const volumes = await volumesCollection.find( searchQuery ).toArray();
 
-    if ( options._id && buckets.length === 0 )
-      throw new Error( 'A bucket with that ID does not exist' );
+    if ( options._id && volumes.length === 0 )
+      throw new Error( 'A volume with that ID does not exist' );
 
     // Now delete each one
-    const promises: Promise<IBucketEntry<'server' | 'client'>>[] = []
-    for ( let i = 0, l = buckets.length; i < l; i++ )
-      promises.push( this.deleteBucket( buckets[ i ] ) );
+    const promises: Promise<IVolume<'server' | 'client'>>[] = []
+    for ( let i = 0, l = volumes.length; i < l; i++ )
+      promises.push( this.deleteVolume( volumes[ i ] ) );
 
     await Promise.all( promises );
     return toRemove;
   }
 
   /**
-   * Deletes the bucket from storage and updates the databases
+   * Deletes the volume from storage and updates the databases
    */
-  private async deleteBucket( bucketEntry: IBucketEntry<'server' | 'client'> ) {
-    const bucketCollection = this._buckets;
+  private async deleteVolume( volume: IVolume<'server' | 'client'> ) {
+    const volumesCollection = this._volumes;
     const stats = this._stats;
 
     try {
-      // First remove all bucket files
-      await this._filesController.removeFiles( { bucketId: bucketEntry._id } );
+      // First remove all volume files
+      await this._filesController.removeFiles( { volumeId: volume._id } );
     } catch ( err ) {
-      throw new Error( `Could not remove the bucket: '${err.toString()}'` );
+      throw new Error( `Could not remove the volume: '${err.toString()}'` );
     }
 
-    await this._activeManager.removeBucket( bucketEntry );
+    await this._activeManager.removeVolume( volume );
 
-    // Remove the bucket entry
-    await bucketCollection.deleteOne( { _id: bucketEntry._id } as IBucketEntry<'server'> );
-    await stats.updateOne( { user: bucketEntry.user } as IStorageStats<'server'>, { $inc: { apiCallsUsed: 1 } as IStorageStats<'server'> } );
+    // Remove the volume entry
+    await volumesCollection.deleteOne( { _id: volume._id } as IVolume<'server'> );
+    await stats.updateOne( { user: volume.user } as IStorageStats<'server'>, { $inc: { apiCallsUsed: 1 } as IStorageStats<'server'> } );
 
     // Send events to sockets
-    const token = { type: ClientInstructionType[ ClientInstructionType.BucketRemoved ], bucket: bucketEntry, username: bucketEntry.user! };
-    await CommsController.singleton.processClientInstruction( new ClientInstruction( token, null, bucketEntry.user ) );
+    const token = { type: ClientInstructionType[ ClientInstructionType.VolumeRemoved ], volume: volume, username: volume.user! };
+    await CommsController.singleton.processClientInstruction( new ClientInstruction( token, null, volume.user ) );
 
-    return bucketEntry;
+    return volume;
   }
 
   /**
@@ -287,18 +287,18 @@ export class BucketsController extends Controller {
   }
 
   /**
-   * Uploads a part stream as a new user file. This checks permissions, updates the local db and uploads the stream to the bucket
+   * Uploads a part stream as a new user file. This checks permissions, updates the local db and uploads the stream to the volume
    * @param part
-   * @param bucket The bucket to which we are uploading to
+   * @param volume The volume to which we are uploading to
    * @param user The username
    * @param makePublic Makes this uploaded file public to the world
    * @param parentFile [Optional] Set a parent file which when deleted will detelete this upload as well
    */
-  async uploadStream( part: Part, bucketEntry: IBucketEntry<'server' | 'client'>, user: string, makePublic: boolean = true, parentFile: string | null = null ) {
+  async uploadStream( part: Part, volume: IVolume<'server' | 'client'>, user: string, makePublic: boolean = true, parentFile: string | null = null ) {
 
     await this.canUpload( user, part );
 
-    const bucketCollection = this._buckets;
+    const volumesCollection = this._volumes;
     const statCollection = this._stats;
     const name = part.filename || part.name;
     const files = this._files;
@@ -309,8 +309,8 @@ export class BucketsController extends Controller {
     const fileEntry: Partial<IFileEntry<'server'>> = {
       name: ( part.filename || part.name ),
       user: user,
-      bucketId: bucketEntry._id!,
-      bucketName: bucketEntry.name!,
+      volumeId: volume._id!,
+      volumeName: volume.name!,
       parentFile: ( parentFile ? new ObjectID( parentFile ) : null ),
       created: Date.now(),
       numDownloads: 0,
@@ -323,13 +323,13 @@ export class BucketsController extends Controller {
     const result = await files.insertOne( fileEntry );
     fileEntry._id = result.insertedId;
 
-    const fileIdentifier = await this._activeManager.uploadFile( bucketEntry, fileEntry, part, { headers: part.headers, filename: name } );
+    const fileIdentifier = await this._activeManager.uploadFile( volume, fileEntry, part, { headers: part.headers, filename: name } );
 
     fileEntry.identifier = fileIdentifier;
-    fileEntry.publicURL = this._activeManager.generateUrl( bucketEntry, fileEntry );
+    fileEntry.publicURL = this._activeManager.generateUrl( volume, fileEntry );
 
-    await bucketCollection.updateOne( { identifier: bucketEntry.identifier } as IBucketEntry<'server'>,
-      { $inc: { memoryUsed: part.byteCount } as IBucketEntry<'server'> } );
+    await volumesCollection.updateOne( { identifier: volume.identifier } as IVolume<'server'>,
+      { $inc: { memoryUsed: part.byteCount } as IVolume<'server'> } );
 
     await statCollection.updateOne( { user: user } as IStorageStats<'server'>,
       { $inc: { memoryUsed: part.byteCount, apiCallsUsed: 1 } as IStorageStats<'server'> } );
@@ -337,7 +337,6 @@ export class BucketsController extends Controller {
     await files.updateOne( { _id: fileEntry._id } as IFileEntry<'server'>,
       { $set: { identifier: fileIdentifier, publicURL: fileEntry.publicURL } as IFileEntry<'server'> } );
 
-    // const file = await this.registerFile( fileIdentifier, bucketEntry, part, user, makePublic, parentFile );
     return fileEntry;
   }
 }
