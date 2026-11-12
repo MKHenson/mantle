@@ -29,7 +29,7 @@
     "prettier": "1.19.1"
   },
   "dependencies": {
-    "@google-cloud/storage": "~2.0.3",
+    "@google-cloud/storage": "~9.0.0",
     "@types/bcrypt": "5.0.0",
     "@types/compression": "0.0.36",
     "@types/entities": "~1.1.0",
